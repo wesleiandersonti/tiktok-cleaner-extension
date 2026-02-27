@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>TikTok Cleaner</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --card:#121a33;
+      --card-2:#0f1730;
+      --text:#e8ecff;
+      --muted:#a8b3d9;
+      --line:#28345f;
+      --primary:#36d9b6;
+      --primary-2:#1dd3a6;
+      --danger:#ff5c7a;
+      --blue:#4d7cff;
+    }
+
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      width:360px;
+      font-family:Inter,Segoe UI,Arial,sans-serif;
+      background:linear-gradient(180deg,#0a0f1d 0%, #0c1328 100%);
+      color:var(--text);
+      padding:12px;
+    }
+
+    .app{
+      background:rgba(18,26,51,.92);
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:12px;
+      box-shadow:0 12px 30px rgba(0,0,0,.35);
+    }
+
+    .head{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:6px 4px 12px;
+      border-bottom:1px solid var(--line);
+      margin-bottom:10px;
+    }
+
+    .head img{width:30px;height:30px;border-radius:8px}
+    .head .title{font-weight:800;font-size:14px;letter-spacing:.2px}
+    .head .sub{font-size:11px;color:var(--muted)}
+
+    .section{
+      background:var(--card-2);
+      border:1px solid var(--line);
+      border-radius:10px;
+      padding:10px;
+      margin-bottom:10px;
+    }
+
+    .section h4{
+      margin:0 0 8px;
+      font-size:12px;
+      color:#c7d2ff;
+      text-transform:uppercase;
+      letter-spacing:.5px;
+    }
+
+    label{display:block;font-size:11px;color:var(--muted);margin:0 0 5px}
+
+    input{
+      width:100%;
+      border:1px solid var(--line);
+      background:#0c1430;
+      color:var(--text);
+      border-radius:8px;
+      padding:8px 9px;
+      margin-bottom:8px;
+      outline:none;
+      transition:.15s border-color;
+      font-size:12px;
+    }
+    input:focus{border-color:var(--blue)}
+
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+    .btn{
+      width:100%;
+      border:0;
+      border-radius:9px;
+      padding:9px 10px;
+      font-weight:700;
+      font-size:12px;
+      cursor:pointer;
+      margin-bottom:8px;
+      transition:.15s transform,.15s opacity;
+    }
+    .btn:hover{transform:translateY(-1px)}
+    .btn:active{transform:translateY(0)}
+
+    .btn-primary{background:linear-gradient(90deg,var(--primary),var(--primary-2));color:#062018}
+    .btn-blue{background:linear-gradient(90deg,#6288ff,#4d7cff);color:#fff}
+    .btn-dark{background:#1a264a;color:#dce5ff;border:1px solid #314273}
+    .btn-danger{background:linear-gradient(90deg,#ff6f8a,var(--danger));color:#fff}
+
+    .status{
+      white-space:pre-wrap;
+      font-size:11px;
+      line-height:1.35;
+      background:#0b132b;
+      border:1px solid var(--line);
+      color:#d8e3ff;
+      border-radius:10px;
+      padding:9px;
+      min-height:80px;
+      max-height:180px;
+      overflow:auto;
+    }
+
+    .progress-wrap{margin-top:8px;background:#0b132b;border:1px solid var(--line);border-radius:999px;height:10px;overflow:hidden}
+    .progress-bar{height:100%;width:0%;background:linear-gradient(90deg,#36d9b6,#4d7cff);transition:width .25s ease}
+    .progress-text{font-size:10px;color:var(--muted);margin-top:5px}
+
+    .tiny{font-size:10px;color:var(--muted);margin-top:6px}
+    .pill{display:inline-block;background:#1a2853;border:1px solid #314273;color:#b9c8ff;border-radius:999px;padding:2px 8px;font-size:10px;margin-left:6px}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="head">
+      <img src="assets/tiktok-logo.svg" alt="TikTok"/>
+      <div>
+        <div class="title">TikTok Following Cleaner <span class="pill">PRO</span></div>
+        <div class="sub">Limpeza inteligente de seguindo</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h4>Critérios</h4>
+      <label>Mínimo de <b>SEGUIDORES</b> da conta</label>
+      <input id="minFollowers" type="number" min="0" value="100"/>
+
+      <label>Máximo de contas (0 = todas)</label>
+      <input id="maxAccounts" type="number" min="0" value="0"/>
+
+      <div class="grid2">
+        <div>
+          <label>Máx. remoções</label>
+          <input id="maxRemovals" type="number" min="1" value="100"/>
+        </div>
+        <div>
+          <label>Delay base (ms)</label>
+          <input id="cooldownMs" type="number" min="300" value="1200"/>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label>Pausa por lote (ms)</label>
+          <input id="batchPauseMs" type="number" min="1000" value="8000"/>
+        </div>
+        <div>
+          <label>Tamanho do lote</label>
+          <input id="batchSize" type="number" min="1" value="8"/>
+        </div>
+      </div>
+
+      <label>Protegidas (nunca remover) — @a,@b</label>
+      <input id="protectedUsers" type="text" placeholder="@meuPerfil,@clienteVip"/>
+    </div>
+
+    <div class="section">
+      <h4>Execução</h4>
+      <button id="dryBtn" class="btn btn-dark">1) Só analisar (obrigatório)</button>
+      <button id="autoBtn" class="btn btn-primary">2) AUTO TOTAL (assumir fluxo)</button>
+      <button id="safeBtn" class="btn btn-dark">ULTRA-SAFE (anti bloqueio)</button>
+      <button id="runBtn" class="btn btn-blue">Varrer e remover (manual)</button>
+      <button id="exportBtn" class="btn btn-dark">Exportar relatório CSV</button>
+      <div class="tiny">Recomendado: analisar primeiro, depois executar remoção.</div>
+    </div>
+
+    <div class="section">
+      <h4>Agendamento automático</h4>
+      <label>URL salva (perfil/página)</label>
+      <input id="profileUrl" type="text" value="https://www.tiktok.com/following"/>
+
+      <div class="grid2">
+        <div>
+          <label>Início (hora)</label>
+          <input id="startHour" type="number" min="0" max="23" value="2"/>
+        </div>
+        <div>
+          <label>Fim (hora)</label>
+          <input id="endHour" type="number" min="0" max="23" value="6"/>
+        </div>
+      </div>
+
+      <label>Intervalo (minutos)</label>
+      <input id="intervalMin" type="number" min="5" value="20"/>
+
+      <button id="saveScheduleBtn" class="btn btn-danger">Salvar agendamento automático</button>
+    </div>
+
+    <div class="section">
+      <h4>Envio automático para esta conversa</h4>
+      <label>Webhook local do OpenClaw bridge</label>
+      <input id="webhookUrl" type="text" value="http://127.0.0.1:8788/report"/>
+      <button id="testWebhookBtn" class="btn btn-dark">Testar envio</button>
+    </div>
+
+    <div id="status" class="status">Abra seu TikTok logado e entre em Perfil antes de rodar.
+Filtro por followers + contas banidas/desativadas.</div>
+    <div class="progress-wrap"><div id="progressBar" class="progress-bar"></div></div>
+    <div id="progressText" class="progress-text">Pronto para executar</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
