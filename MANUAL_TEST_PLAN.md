@@ -1,78 +1,69 @@
-# Plano de teste manual
+# Manual Test Plan
 
-## Pré-requisitos
-- Chrome/Edge com perfil de teste logado no TikTok
-- Extensão recarregada em `chrome://extensions`
-- Aba do TikTok aberta em `https://www.tiktok.com/following`
+## Preconditions
+- TikTok logged in and opened on Following list
+- Extension reloaded in `chrome://extensions`
+- Developer mode enabled
 
-## Bloco 1 - Smoke do popup e persistência
-1. Abra o popup.
-2. Altere: `minFollowers`, `maxAccounts`, `dailyRemovalCap`, `scheduleEnabled`, `webhookUrl`.
-3. Feche e abra o popup.
+## 1) Analyzer smoke
+1. Open popup.
+2. Click `Analisar perfis visiveis`.
 
-Esperado:
-- valores alterados permanecem
-- status inicial carrega sem erro
+Expected:
+- Analysis completes with visible rows count.
+- Result cards show score, classification and reasons.
+- No network/webhook prompt or external URL usage.
 
-## Bloco 2 - Webhook e validação
-1. Em webhook, teste URL inválida (ex.: `ftp://teste`).
-2. Clique em salvar agendamento.
-3. Ajuste para `http://127.0.0.1:8788/report` e teste envio.
+## 2) Transparency and score
+1. Pick one profile card.
+2. Check shown metrics and reasons.
 
-Esperado:
-- URL inválida mostra erro explícito
-- URL local aceita
-- botão de teste informa sucesso/falha com mensagem clara
+Expected:
+- Reasons are explicit (`+weight` style).
+- Classification follows thresholds:
+  - `>= 60` => Provavelmente inativo
+  - `>= 30` => Baixa atividade
+  - `< 30` => Ativo
 
-## Bloco 3 - Agendamento e lock
-1. Ative agendamento e salve (intervalo curto de teste, ex.: 5 min).
-2. Force uma execução longa manual (`ULTRA-SAFE`) e, durante execução, aguarde alarme.
-3. Após término, verifique `chrome.storage.local`.
+## 3) Assisted unfollow confirmation
+1. Select one or more profiles.
+2. Try unfollow without typing `CONFIRMAR`.
+3. Type `CONFIRMAR` and run again.
 
-Esperado:
-- não inicia segunda execução simultânea
-- `tiktokCleanerLastScheduledRun.reason === "already_running"` quando houver colisão
-- lock é removido ao final (`tiktokCleanerRunLock` não persiste indefinidamente)
+Expected:
+- Step 2 blocked.
+- Step 3 allowed only after explicit confirmation.
 
-## Bloco 4 - Gate de análise recente (agendado)
-1. Marque `Exigir análise recente antes de remover`.
-2. Limpe/ausente `tiktokCleanerLastAnalyzeRun` no storage e aguarde alarme.
+## 4) Daily limit enforcement
+1. Set low daily limit (example: 1).
+2. Save settings.
+3. Try assisted unfollow of multiple selected profiles.
 
-Esperado:
-- rotina agendada não remove
-- `tiktokCleanerLastScheduledRun.skipped === true`
-- motivo de bloqueio: `no_recent_analysis` (ou `analysis_too_old`)
+Expected:
+- Approval caps operation by remaining daily budget.
+- Popup displays remaining count update.
 
-## Bloco 5 - Backoff e motivo de parada
-1. Rode análise em cenário com erro de acesso/rate limit (se ocorrer naturalmente).
-2. Verifique status final no popup.
+## 5) Max per action enforcement
+1. Set `Max por acao assistida` to `2`.
+2. Select more than 2 profiles and confirm.
 
-Esperado:
-- mensagens de erro incluem backoff
-- em acesso negado/captcha, execução para imediato com `stoppedReason: access_denied`
-- relatório mostra `heuristicsVersion`
+Expected:
+- Approved count does not exceed 2.
 
-## Bloco 6 - Limite diário absoluto
-1. Configure `dailyRemovalCap` baixo (ex.: 1).
-2. Execute remoção que consuma o limite.
-3. Tente nova remoção no mesmo dia.
+## 6) DOM-only behavior
+1. Keep Following list partially loaded.
+2. Run analysis.
 
-Esperado:
-- segunda tentativa é bloqueada por limite diário
-- storage mostra consumo em `tiktokCleanerDailyRemovalStats`
+Expected:
+- Only currently visible/loaded rows are analyzed.
+- Extension does not navigate automatically to profiles or call private APIs.
 
-## Bloco 7 - Parada de emergência
-1. Inicie uma execução longa.
-2. Clique em `Parada de emergência` no popup.
+## 7) Handshake and messaging stability
+1. With TikTok open and Following list visible, click `Analisar perfis visiveis`.
+2. With TikTok open but outside Following tab, click `Analisar perfis visiveis`.
+3. With a non-TikTok tab active, click `Analisar perfis visiveis`.
 
-Esperado:
-- agendamento é desativado
-- execução ativa para com `stoppedReason: emergency_stop` (em até alguns segundos)
-- `tiktokCleanerStopRequested === true` após acionamento
-
-## Janela horária
-1. Defina `startHour == endHour`.
-2. Salve agendamento.
-
-Esperado:
-- rotina considera janela de 24h
+Expected:
+- Step 1 runs without `Receiving end does not exist` errors.
+- Step 2 shows PRECHECK guidance to open the `Seguindo` tab.
+- Step 3 shows guidance to open `https://www.tiktok.com/`.

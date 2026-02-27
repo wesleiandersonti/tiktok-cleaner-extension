@@ -1,381 +1,549 @@
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+const REQUIRED_UNFOLLOW_CONFIRMATION = 'CONFIRMAR';
+globalThis.__TT_ANALYZER_CONTENT_READY__ = false;
 
-const HEURISTICS_VERSION = '2026-02-26-a';
-const ACCESS_DENIED_TERMS = ['access denied', 'acesso negado', 'captcha', 'verify to continue', 'too many attempts'];
-const HARD_BANNED_TERMS = [
-  "couldn't find this account",
-  'não foi possível encontrar esta conta',
-  'account is unavailable',
-  'conta indisponível',
-  'user not found',
-  'usuário não encontrado'
-];
-const DEFAULT_STOP_KEY = 'tiktokCleanerStopRequested';
-
-function taggedError(message, code) {
-  const err = new Error(message);
-  err.code = code;
-  return err;
+const scoreEngine = globalThis.TikTokInactivityScore;
+if (!scoreEngine) {
+  throw new Error('Inactivity score engine not loaded.');
 }
 
-function createAdaptiveBackoff(baseDelayMs, ultraSafe) {
-  let penaltyMs = 0;
-  const minimumGapMs = ultraSafe
-    ? Math.max(650, Math.floor(baseDelayMs * 0.6))
-    : Math.max(280, Math.floor(baseDelayMs * 0.35));
-  const jitterMs = ultraSafe ? 700 : 320;
+const DEFAULT_WEIGHTS = scoreEngine.DEFAULT_WEIGHTS;
+const CLASSIFICATION_THRESHOLDS = scoreEngine.CLASSIFICATION_THRESHOLDS;
+const normalizeScoreWeights = scoreEngine.normalizeWeights;
+const calculateInactivityScore = scoreEngine.calculateInactivityScore;
 
-  return {
-    async waitBeforeRequest() {
-      await sleep(minimumGapMs + penaltyMs + Math.floor(Math.random() * jitterMs));
-    },
-    onSuccess() {
-      penaltyMs = Math.max(0, Math.floor(penaltyMs * 0.5) - 120);
-    },
-    onThrottle() {
-      penaltyMs = Math.min(15000, Math.max(1800, penaltyMs > 0 ? penaltyMs * 2 : 2200));
-    },
-    onError() {
-      penaltyMs = Math.min(12000, penaltyMs + 600);
-    },
-    currentPenalty() {
-      return penaltyMs;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function clampNumber(value, fallback, min, max) {
+  let n = Number(value);
+  if (!Number.isFinite(n)) n = fallback;
+  if (Number.isFinite(min)) n = Math.max(min, n);
+  if (Number.isFinite(max)) n = Math.min(max, n);
+  return n;
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function parseCompactNumber(raw) {
+  if (!raw) return null;
+
+  const compact = String(raw).trim().toLowerCase().replace(/\s+/g, '');
+  if (!compact) return null;
+
+  const suffix = compact.match(/[kmb]$/);
+  if (suffix) {
+    const baseRaw = compact.slice(0, -1).replace(/\./g, '').replace(',', '.');
+    const base = Number(baseRaw);
+    if (!Number.isFinite(base)) return null;
+    const factor = suffix[0] === 'k' ? 1_000 : suffix[0] === 'm' ? 1_000_000 : 1_000_000_000;
+    return Math.round(base * factor);
+  }
+
+  const digits = compact.replace(/[^\d]/g, '');
+  if (!digits) return null;
+  const parsed = Number(digits);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function extractMetricByKeywords(text, keywords) {
+  const source = String(text || '');
+  if (!source) return null;
+  const group = keywords.map(escapeRegex).join('|');
+
+  const patterns = [
+    new RegExp(`([\\d.,]+\\s*[kmb]?)\\s*(?:${group})`, 'i'),
+    new RegExp(`(?:${group})\\s*[:\\-]?\\s*([\\d.,]+\\s*[kmb]?)`, 'i')
+  ];
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (!match) continue;
+    const value = parseCompactNumber(match[1]);
+    if (value !== null) return value;
+  }
+
+  return null;
+}
+
+function parseRelativeDays(text) {
+  const source = String(text || '').toLowerCase();
+  if (!source) return null;
+
+  if (source.includes('yesterday') || source.includes('ontem')) return 1;
+
+  const patterns = [
+    { regex: /(\d+)\s*(d|day|days|dia|dias)\b/i, factor: 1 },
+    { regex: /(\d+)\s*(w|week|weeks|sem|semana|semanas)\b/i, factor: 7 },
+    { regex: /(\d+)\s*(mo|month|months|mes|meses)\b/i, factor: 30 },
+    { regex: /(\d+)\s*(y|year|years|ano|anos)\b/i, factor: 365 },
+    { regex: /(\d+)\s*(h|hour|hours|hora|horas)\b/i, factor: 0 }
+  ];
+
+  for (const item of patterns) {
+    const m = source.match(item.regex);
+    if (!m) continue;
+    const amount = Number(m[1]);
+    if (!Number.isFinite(amount)) continue;
+    return Math.max(0, Math.round(amount * item.factor));
+  }
+
+  return null;
+}
+
+function extractDaysSinceLastPost(row) {
+  const timeEl = row.querySelector('time[datetime]');
+  if (timeEl?.dateTime) {
+    const dt = Date.parse(timeEl.dateTime);
+    if (Number.isFinite(dt)) {
+      const diffDays = Math.floor((Date.now() - dt) / (24 * 60 * 60 * 1000));
+      if (diffDays >= 0) return diffDays;
     }
-  };
+  }
+
+  return parseRelativeDays(row.innerText || '');
 }
 
-function isScrollable(el) {
-  if (!el || el === document.body || el === document.documentElement) return false;
-  const s = getComputedStyle(el);
-  return (s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 120;
+function detectBioEmpty(row) {
+  const bioNode = row.querySelector('[data-e2e*="bio"], [class*="bio"]');
+  if (bioNode) {
+    return String(bioNode.textContent || '').trim().length === 0;
+  }
+
+  const text = String(row.innerText || '').toLowerCase();
+  if (text.includes('sem bio') || text.includes('no bio')) return true;
+  return null;
 }
 
-function getScrollableAncestor(el) {
-  let cur = el;
-  while (cur && cur !== document.body) {
-    if (isScrollable(cur)) return cur;
-    cur = cur.parentElement;
+function detectHasAvatar(row) {
+  const img = row.querySelector('img');
+  if (!img) return false;
+  const src = String(img.getAttribute('src') || '').trim().toLowerCase();
+  if (!src) return false;
+  if (src.includes('default-avatar') || src.includes('placeholder')) return false;
+  return true;
+}
+
+const PROFILE_ANCHOR_SELECTORS = [
+  'a[href^="/@"]',
+  'a[href*="/@"]',
+  'a[href^="https://www.tiktok.com/@"]',
+  'a[href^="https://m.tiktok.com/@"]'
+];
+
+function isProfileHref(href) {
+  if (!href) return false;
+  try {
+    const url = new URL(href, window.location.origin);
+    return /^\/@[a-zA-Z0-9._]+/.test(url.pathname || '');
+  } catch {
+    return false;
+  }
+}
+
+function getProfileAnchorFromScope(scope) {
+  for (const selector of PROFILE_ANCHOR_SELECTORS) {
+    const anchors = Array.from(scope.querySelectorAll(selector));
+    const hit = anchors.find((a) => isProfileHref(a.getAttribute('href')));
+    if (hit) return hit;
   }
   return null;
 }
 
-function getFollowingButtons(scope = document) {
-  return Array.from(scope.querySelectorAll('button')).filter(b => /^(seguindo|following)$/i.test((b.textContent || '').trim()));
-}
+function collectProfileAnchors(scope) {
+  const result = [];
+  const seenHref = new Set();
 
-function getRowFromButton(btn) {
-  const candidates = [btn.parentElement, btn.closest('li'), btn.closest('[role="listitem"]'), btn.closest('div')].filter(Boolean);
-  for (const c of candidates) {
-    if (c && c.querySelector('a[href*="/@"]')) return c;
+  for (const selector of PROFILE_ANCHOR_SELECTORS) {
+    const anchors = Array.from(scope.querySelectorAll(selector));
+    for (const anchor of anchors) {
+      const href = String(anchor.getAttribute('href') || '');
+      if (!isProfileHref(href)) continue;
+      if (seenHref.has(href)) continue;
+      seenHref.add(href);
+      result.push(anchor);
+    }
   }
-  return btn.parentElement || btn;
+
+  return result;
 }
 
-function findFollowingEntryRows(scope = document) {
-  const rows = [];
-  const seen = new Set();
-  for (const btn of getFollowingButtons(scope)) {
-    const row = getRowFromButton(btn);
-    const link = row?.querySelector('a[href*="/@"]');
-    if (!row || !link) continue;
-    if (seen.has(row)) continue;
-    seen.add(row);
-    rows.push(row);
-  }
-  return rows;
-}
+function isVisibleElement(el) {
+  if (!el || !el.isConnected) return false;
+  const style = getComputedStyle(el);
+  if (style.display === 'none' || style.visibility === 'hidden') return false;
+  if (Number(style.opacity) === 0) return false;
 
-function parseUsernameFromRow(row) {
-  const a = row.querySelector('a[href*="/@"]');
-  const href = a?.getAttribute('href') || '';
-  const m = href.match(/\/@([a-zA-Z0-9._]+)/);
-  return m ? m[1] : null;
+  const rect = el.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return false;
+  if (rect.bottom <= 0 || rect.top >= window.innerHeight) return false;
+  return true;
 }
 
 function getFollowButton(row) {
-  return Array.from(row.querySelectorAll('button')).find(b => /^(seguindo|following)$/i.test((b.textContent || '').trim())) || null;
+  const structural = row.querySelector(
+    'button[data-e2e*="follow"], button[aria-label*="follow" i], button[aria-label*="segu" i], button[aria-pressed]'
+  );
+  if (structural) return structural;
+
+  return Array.from(row.querySelectorAll('button')).find((btn) => {
+    const label = String(btn.textContent || '').trim().toLowerCase();
+    return label === 'following' || label === 'seguindo';
+  }) || null;
 }
 
-async function ensureFollowingListOpen() {
-  let dialog = document.querySelector('[role="dialog"]');
-  if (dialog) return dialog;
+function isLikelyRowNode(node) {
+  if (!(node instanceof HTMLElement)) return false;
+  if (!isVisibleElement(node)) return false;
 
-  const clickByText = (regex) => {
-    const nodes = Array.from(document.querySelectorAll('a,button,div,span'));
-    const target = nodes.find(n => regex.test((n.textContent || '').trim()));
-    if (target) {
-      target.click();
-      return true;
+  const anchor = getProfileAnchorFromScope(node);
+  if (!anchor) return false;
+
+  const rect = node.getBoundingClientRect();
+  if (rect.height < 24 || rect.height > 360) return false;
+
+  return !!node.querySelector('button, [role="button"]');
+}
+
+function deriveRowFromAnchor(anchor, container) {
+  if (!anchor || !container || !container.contains(anchor)) return null;
+
+  const candidates = [
+    anchor.closest('[role="listitem"]'),
+    anchor.closest('li'),
+    anchor.closest('article'),
+    anchor.closest('[data-e2e*="follow"]'),
+    anchor.closest('section'),
+    anchor.closest('div')
+  ].filter(Boolean);
+
+  for (const node of candidates) {
+    if (!container.contains(node)) continue;
+    if (isLikelyRowNode(node)) return node;
+  }
+
+  return null;
+}
+
+function addUniqueElement(list, set, element) {
+  if (!element || set.has(element)) return;
+  set.add(element);
+  list.push(element);
+}
+
+function sortByDomOrder(elements) {
+  return elements.sort((a, b) => {
+    if (a === b) return 0;
+    const pos = a.compareDocumentPosition(b);
+    if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+    if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+    return 0;
+  });
+}
+
+function parseUsernameFromRow(row) {
+  const anchor = getProfileAnchorFromScope(row);
+  const href = String(anchor?.getAttribute('href') || '');
+  const match = href.match(/\/@([a-zA-Z0-9._]+)/i);
+  return match ? match[1] : null;
+}
+
+function parseDisplayNameFromRow(row) {
+  const anchor = getProfileAnchorFromScope(row);
+  const txt = String(anchor?.textContent || '').trim();
+  if (txt) return txt;
+  const maybe = String(row.querySelector('strong, h3, h4')?.textContent || '').trim();
+  return maybe || null;
+}
+
+function collectRowsFromContainerPrimary(container) {
+  const rows = [];
+  const seen = new Set();
+  const semanticRows = Array.from(container.querySelectorAll('[role="listitem"], li, article'));
+
+  for (const row of semanticRows) {
+    if (!isLikelyRowNode(row)) continue;
+    addUniqueElement(rows, seen, row);
+  }
+
+  return rows;
+}
+
+function collectRowsFromContainerByAnchors(container) {
+  const rows = [];
+  const seen = new Set();
+  const anchors = collectProfileAnchors(container);
+
+  for (const anchor of anchors) {
+    const row = deriveRowFromAnchor(anchor, container);
+    if (!row) continue;
+    addUniqueElement(rows, seen, row);
+  }
+
+  return rows;
+}
+
+function getVisibleFollowingRows() {
+  const container = findFollowingContainer();
+  if (!container) return [];
+
+  // Fallback 1 (primario): usa semantica de lista (role=listitem, li, article).
+  const primaryRows = collectRowsFromContainerPrimary(container);
+  if (primaryRows.length > 0) {
+    return sortByDomOrder(primaryRows);
+  }
+
+  // Fallback 2: ancora de perfil (/@user) + subida estrutural para linha/cartao.
+  const secondaryRows = collectRowsFromContainerByAnchors(container);
+  if (secondaryRows.length > 0) {
+    return sortByDomOrder(secondaryRows);
+  }
+
+  // Fallback 3: busca em escopo principal visivel quando a lista muda de hierarquia.
+  const mainScope = document.querySelector('main') || document.body;
+  const tertiaryRows = collectRowsFromContainerByAnchors(mainScope);
+  return sortByDomOrder(tertiaryRows);
+}
+
+function findVisibleFollowingRows() {
+  return getVisibleFollowingRows();
+}
+
+function findFollowingContainer() {
+  const candidates = [
+    // dialog modal de following em alguns layouts
+    '[role="dialog"] [role="list"]',
+    '[role="dialog"]',
+    // lista inline no perfil em layouts alternativos
+    'main [role="list"]',
+    'main section[role="region"]',
+    'main section',
+    'main'
+  ];
+
+  for (const selector of candidates) {
+    const node = document.querySelector(selector);
+    if (!node || !node.isConnected) continue;
+
+    const hasAnchors = collectProfileAnchors(node).length > 0;
+    const hasSemanticList = !!node.querySelector('[role="list"], [role="listitem"], li, article');
+    if (hasAnchors || hasSemanticList) {
+      return node;
     }
-    return false;
+  }
+
+  return null;
+}
+
+function precheckFollowingContext() {
+  // Ordem de validacao: dominio -> perfil -> aba seguindo -> container -> linhas visiveis.
+  const host = String(window.location.hostname || '').toLowerCase();
+  if (!host.endsWith('tiktok.com')) {
+    return {
+      ok: false,
+      code: 'NOT_TIKTOK_DOMAIN',
+      message: 'Abra o TikTok antes de usar a extensao.'
+    };
+  }
+
+  const path = String(window.location.pathname || '').toLowerCase();
+  if (!/\/@[a-z0-9._]+/.test(path)) {
+    return {
+      ok: false,
+      code: 'NOT_PROFILE_PAGE',
+      message: 'Va ate o seu perfil para analisar quem voce segue.'
+    };
+  }
+
+  if (!path.includes('/following')) {
+    return {
+      ok: false,
+      code: 'NOT_FOLLOWING_TAB',
+      message: "No seu perfil, clique na aba 'Seguindo'."
+    };
+  }
+
+  const container = findFollowingContainer();
+  if (!container) {
+    return {
+      ok: false,
+      code: 'FOLLOWING_LIST_NOT_READY',
+      message: 'A lista de Seguindo ainda nao carregou. Aguarde alguns segundos.'
+    };
+  }
+
+  const rows = findVisibleFollowingRows();
+  if (!rows.length) {
+    return {
+      ok: false,
+      code: 'NO_VISIBLE_ROWS',
+      message: "Role a lista de 'Seguindo' para carregar perfis antes de analisar."
+    };
+  }
+
+  return { ok: true };
+}
+
+function extractSignalsFromRow(row) {
+  const text = String(row.innerText || '');
+  return {
+    daysSinceLastPost: extractDaysSinceLastPost(row),
+    posts: extractMetricByKeywords(text, ['posts', 'videos', 'publicacoes']),
+    followers: extractMetricByKeywords(text, ['followers', 'seguidores']),
+    following: extractMetricByKeywords(text, ['following', 'seguindo']),
+    likes: extractMetricByKeywords(text, ['likes', 'curtidas']),
+    bioEmpty: detectBioEmpty(row),
+    hasAvatar: detectHasAvatar(row)
   };
-
-  // 1) Perfil: contador "Seguindo"
-  clickByText(/^\d+[\d.,KMBkmb]*\s*seguindo$/i);
-  await sleep(900);
-  dialog = document.querySelector('[role="dialog"]');
-  if (dialog) return dialog;
-
-  // 2) Clicar em qualquer item "Seguindo" no perfil
-  clickByText(/^seguindo$/i);
-  await sleep(900);
-  dialog = document.querySelector('[role="dialog"]');
-  if (dialog) return dialog;
-
-  // 3) Sidebar Following page: botão "Ver todos"
-  clickByText(/^ver todos$/i);
-  await sleep(900);
-  dialog = document.querySelector('[role="dialog"]');
-
-  return dialog;
 }
 
-async function fetchProfileSignals(username) {
-  const url = `https://www.tiktok.com/@${username}`;
-  const resp = await fetch(url, { credentials: 'include' });
-  if (resp.status === 429) throw taggedError(`HTTP 429 @${username}`, 'RATE_LIMIT');
-  if (resp.status === 403) throw taggedError(`HTTP 403 @${username}`, 'ACCESS_DENIED');
-  if (!resp.ok) throw taggedError(`HTTP ${resp.status} @${username}`, 'HTTP_ERROR');
-  const html = await resp.text();
-
-  const normalized = html.toLowerCase();
-
-  if (ACCESS_DENIED_TERMS.some(t => normalized.includes(t))) {
-    throw taggedError(`Acesso negado/captcha ao consultar @${username}`, 'ACCESS_DENIED');
+async function analyzeVisibleFollowing(payload) {
+  const context = precheckFollowingContext();
+  if (!context.ok) {
+    return context;
   }
 
-  const m = html.match(/"followerCount"\s*:\s*(\d+)/);
-  const followers = m ? Number(m[1]) : null;
+  const weights = normalizeScoreWeights(payload?.weights);
+  const rows = findVisibleFollowingRows();
 
-  const hasHardTerm = HARD_BANNED_TERMS.some(t => normalized.includes(t));
-  const isBanned = followers === null && hasHardTerm;
-
-  return { followers, isBanned };
-}
-
-async function deepScroll(container, rounds = 25) {
-  let prev = -1;
-  let stuck = 0;
-  for (let i = 0; i < rounds; i++) {
-    container.scrollTop += Math.max(320, Math.floor(container.clientHeight * 0.8));
-    await sleep(280);
-    if (container.scrollTop === prev) stuck++; else stuck = 0;
-    prev = container.scrollTop;
-    if (stuck >= 3) break;
-  }
-}
-
-async function runCleanup({ minFollowers, maxAccounts, dryRun, maxRemovals, cooldownMs, batchPauseMs, batchSize, ultraSafe, protectedUsers, stopKey = DEFAULT_STOP_KEY }) {
-  const analyzeAll = !maxAccounts || Number(maxAccounts) === 0;
-  const maxRemoveLimit = Math.max(1, Number(maxRemovals || 100));
-  const delayBaseMs = Math.max(300, Number(cooldownMs || 1200));
-  const pausePerBatchMs = Math.max(1000, Number(batchPauseMs || 8000));
-  const removeBatchSize = Math.max(1, Number(batchSize || 8));
-  const isUltraSafe = !!ultraSafe;
-  const protectedSet = new Set((protectedUsers || []).map(x => String(x).toLowerCase()));
-  const errors = [];
-  const backoff = createAdaptiveBackoff(delayBaseMs, isUltraSafe);
-  const stopState = { ts: 0, value: false };
-
-  async function isStopRequested() {
-    const now = Date.now();
-    if (now - stopState.ts < 450) return stopState.value;
-    try {
-      const data = await chrome.storage.local.get(stopKey);
-      stopState.value = !!data?.[stopKey];
-      stopState.ts = now;
-      return stopState.value;
-    } catch {
-      stopState.ts = now;
-      return false;
-    }
+  if (rows.length === 0) {
+    throw new Error('Nenhuma linha visivel de seguindo encontrada. Abra a lista de Seguindo antes de analisar.');
   }
 
-  const denyText = (document.body?.innerText || '').toLowerCase();
-  if (denyText.includes('acesso negado') || denyText.includes('access denied')) {
-    throw new Error('Acesso negado detectado na página. Pare e tente novamente mais tarde.');
-  }
-  const dialog = await ensureFollowingListOpen();
-  if (!dialog) throw new Error('Não consegui abrir a lista de Seguindo automaticamente. Abra Perfil > Seguindo e tente novamente.');
+  const profiles = [];
+  const seenUsers = new Set();
 
-  let rows = findFollowingEntryRows(dialog);
-  if (rows.length === 0) rows = findFollowingEntryRows(document);
-  if (rows.length === 0) throw new Error('Não encontrei linhas com botão "Seguindo".');
+  for (const row of rows) {
+    const username = parseUsernameFromRow(row);
+    if (!username || seenUsers.has(username)) continue;
+    seenUsers.add(username);
 
-  let scrollBox = getScrollableAncestor(rows[0]) || getScrollableAncestor(dialog) || dialog;
-  if (!isScrollable(scrollBox)) {
-    // fallback: maior elemento rolável dentro do dialog
-    const candidates = Array.from(dialog.querySelectorAll('*')).filter(isScrollable);
-    candidates.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
-    scrollBox = candidates[0] || scrollBox;
-  }
+    const signals = extractSignalsFromRow(row);
+    const scoreData = calculateInactivityScore(signals, weights);
 
-  if (!scrollBox || !isScrollable(scrollBox)) {
-    throw new Error('Lista rolável de Seguindo não encontrada.');
+    profiles.push({
+      username,
+      displayName: parseDisplayNameFromRow(row),
+      ...signals,
+      ...scoreData
+    });
   }
 
-  await deepScroll(scrollBox, 40);
-  scrollBox.scrollTop = 0;
-  await sleep(700);
-
-  const checkedUsers = new Set();
-  let checked = 0;
-  let below = 0;
-  let banned = 0;
-  let removed = 0;
-  let skippedProtected = 0;
-  const audit = [];
-  let noNewRounds = 0;
-  let consecutiveFailures = 0;
-  let stoppedReason = null;
-
-  outerLoop:
-  for (let round = 0; round < 400; round++) {
-    if (await isStopRequested()) {
-      stoppedReason = 'emergency_stop';
-      errors.push('Execução interrompida por solicitação de parada de emergência.');
-      break;
-    }
-
-    let currentRows = findFollowingEntryRows(dialog);
-    if (currentRows.length === 0) currentRows = findFollowingEntryRows(document);
-
-    let addedThisRound = 0;
-
-    for (const row of currentRows) {
-      if (await isStopRequested()) {
-        stoppedReason = 'emergency_stop';
-        errors.push('Execução interrompida por solicitação de parada de emergência.');
-        break outerLoop;
-      }
-
-      if (!analyzeAll && checked >= maxAccounts) break;
-
-      const username = parseUsernameFromRow(row);
-      if (!username || checkedUsers.has(username)) continue;
-      checkedUsers.add(username);
-      addedThisRound++;
-
-      if (protectedSet.has(username.toLowerCase())) {
-        skippedProtected++;
-        audit.push({ username, followers: null, isBanned: false, belowMin: false, protected: true, removed: false, reason: 'protected' });
-        continue;
-      }
-
-      try {
-        await backoff.waitBeforeRequest();
-        const signal = await fetchProfileSignals(username);
-        backoff.onSuccess();
-        consecutiveFailures = 0;
-        checked++;
-
-        const shouldRemoveByBan = signal.isBanned;
-        const shouldRemoveByFollowers = signal.followers !== null && signal.followers < minFollowers;
-
-        if (shouldRemoveByBan) banned++;
-        if (shouldRemoveByFollowers) below++;
-
-        const reason = shouldRemoveByBan && shouldRemoveByFollowers
-          ? 'banned+below'
-          : shouldRemoveByBan
-            ? 'banned'
-            : shouldRemoveByFollowers
-              ? 'below'
-              : '';
-
-        let didRemove = false;
-        if (shouldRemoveByBan || shouldRemoveByFollowers) {
-          if (!dryRun && removed < maxRemoveLimit) {
-            const btn = getFollowButton(row);
-            if (btn) {
-              btn.click();
-              removed++;
-              didRemove = true;
-
-              const rand = isUltraSafe ? Math.floor(Math.random() * 700) : Math.floor(Math.random() * 250);
-              await sleep(delayBaseMs + rand);
-
-              if (removed % removeBatchSize === 0) {
-                await sleep(pausePerBatchMs + (isUltraSafe ? 3000 : 0));
-              }
-            } else {
-              errors.push(`botão não encontrado @${username}`);
-            }
-          }
-        }
-
-        audit.push({
-          username,
-          followers: signal.followers,
-          isBanned: shouldRemoveByBan,
-          belowMin: shouldRemoveByFollowers,
-          protected: false,
-          removed: didRemove,
-          reason
-        });
-      } catch (e) {
-        const code = e?.code || '';
-        const message = String(e.message || e);
-        if (code === 'RATE_LIMIT' || code === 'ACCESS_DENIED') {
-          backoff.onThrottle();
-        } else {
-          backoff.onError();
-        }
-
-        consecutiveFailures++;
-        errors.push(`${message} (backoff ${backoff.currentPenalty()}ms)`);
-
-        if (code === 'ACCESS_DENIED') {
-          stoppedReason = 'access_denied';
-          errors.push('Execução interrompida imediatamente por acesso negado/captcha.');
-          break outerLoop;
-        }
-
-        if (consecutiveFailures >= 4 && code === 'RATE_LIMIT') {
-          stoppedReason = 'throttled';
-          errors.push('Execução interrompida por bloqueio/rate limit consecutivo.');
-          break outerLoop;
-        }
-
-        if (consecutiveFailures >= 8) {
-          stoppedReason = 'too_many_errors';
-          errors.push('Execução interrompida por excesso de falhas consecutivas.');
-          break outerLoop;
-        }
-      }
-    }
-
-    if (!analyzeAll && checked >= maxAccounts) {
-      break;
-    }
-
-    if (addedThisRound === 0) noNewRounds++; else noNewRounds = 0;
-    if (noNewRounds >= 4) break;
-
-    scrollBox.scrollTop += Math.max(220, Math.floor(scrollBox.clientHeight * 0.65));
-    await sleep(320);
-  }
+  profiles.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.username.localeCompare(b.username);
+  });
 
   return {
-    checked,
-    below,
-    banned,
-    removed,
-    skippedProtected,
-    errors,
-    foundTotal: checkedUsers.size,
-    audit,
-    heuristicsVersion: HEURISTICS_VERSION,
-    stoppedReason
+    ok: true,
+    scannedAt: new Date().toISOString(),
+    totalVisibleRows: rows.length,
+    totalProfiles: profiles.length,
+    thresholds: CLASSIFICATION_THRESHOLDS,
+    weights,
+    profiles
   };
+}
+
+async function unfollowSelectedVisible(payload) {
+  const context = precheckFollowingContext();
+  if (!context.ok) {
+    return context;
+  }
+
+  const usernames = Array.isArray(payload?.usernames)
+    ? payload.usernames.map((u) => String(u || '').trim()).filter(Boolean)
+    : [];
+
+  if (usernames.length === 0) {
+    throw new Error('Nenhum usuario selecionado para unfollow.');
+  }
+
+  if (String(payload?.confirmationText || '').trim().toUpperCase() !== REQUIRED_UNFOLLOW_CONFIRMATION) {
+    throw new Error('Confirmacao invalida.');
+  }
+
+  const delayMs = clampNumber(payload?.delayMs, 1200, 700, 10000);
+  const rows = findVisibleFollowingRows();
+  const rowByUsername = new Map();
+  for (const row of rows) {
+    const username = parseUsernameFromRow(row);
+    if (!username || rowByUsername.has(username)) continue;
+    rowByUsername.set(username, row);
+  }
+
+  const result = {
+    ok: true,
+    attempted: usernames.length,
+    unfollowed: 0,
+    skippedNotVisible: 0,
+    skippedNoButton: 0,
+    errors: [],
+    processedUsernames: []
+  };
+
+  for (const username of usernames) {
+    const row = rowByUsername.get(username);
+    if (!row) {
+      result.skippedNotVisible++;
+      continue;
+    }
+
+    const button = getFollowButton(row);
+    if (!button) {
+      result.skippedNoButton++;
+      continue;
+    }
+
+    try {
+      button.click();
+      result.unfollowed++;
+      result.processedUsernames.push(username);
+      const jitter = Math.floor(Math.random() * 500);
+      await sleep(delayMs + jitter);
+    } catch (e) {
+      result.errors.push(`Falha @${username}: ${String(e?.message || e)}`);
+    }
+  }
+
+  return result;
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (!msg || (msg.type !== 'RUN_CLEANUP' && msg.type !== 'AUTO_TOTAL')) return;
+  if (!msg?.type) return;
 
-  runCleanup(msg.payload)
-    .then(sendResponse)
-    .catch(err => sendResponse({ checked: 0, below: 0, removed: 0, errors: [String(err.message || err)] }));
+  (async () => {
+    if (msg.type === 'PING') {
+      sendResponse({ ok: true, pong: true });
+      return;
+    }
+
+    if (msg.type === 'PRECHECK') {
+      const data = precheckFollowingContext();
+      sendResponse(data);
+      return;
+    }
+
+    if (msg.type === 'ANALYZE_VISIBLE_FOLLOWING') {
+      const data = await analyzeVisibleFollowing(msg.payload || {});
+      sendResponse(data);
+      return;
+    }
+
+    if (msg.type === 'UNFOLLOW_SELECTED_VISIBLE') {
+      const data = await unfollowSelectedVisible(msg.payload || {});
+      sendResponse(data);
+      return;
+    }
+
+    sendResponse({ ok: false, error: 'Mensagem nao suportada.' });
+  })().catch((e) => {
+    sendResponse({ ok: false, error: String(e?.message || e) });
+  });
 
   return true;
 });
+
+globalThis.__TT_ANALYZER_CONTENT_READY__ = true;
