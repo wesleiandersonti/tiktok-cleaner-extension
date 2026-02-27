@@ -1,61 +1,75 @@
-# TikTok Following Cleaner (Extensão Chrome)
+# TikTok Following Analyzer & Cleaner (Chrome Extension)
 
-Extensão privada para varrer sua lista de **Seguindo** e remover contas abaixo de um mínimo de seguidores.
+Extensao focada em **analise assistida** da lista Seguindo no TikTok.
 
-## Avisos
-- Use somente na sua conta.
-- TikTok muda interface com frequência; ajustes podem ser necessários.
-- Execute com cuidado (evite volumes muito altos por rodada).
+Objetivo: ajudar o usuario a identificar contas com baixa atividade usando sinais publicos visiveis no DOM, com transparencia total de criterios e unfollow apenas com confirmacao explicita.
 
-## Instalação
+## Principios de seguranca e compliance
+- sem APIs privadas do TikTok
+- sem coleta/envio de dados para servidores externos
+- sem acao automatica sem interacao do usuario
+- limites diarios e delays humanos em unfollow assistido
+
+## O que a extensao faz
+1. Analisa apenas perfis visiveis na tela/lista de Seguindo.
+2. Extrai sinais publicos quando disponiveis no DOM:
+   - dias desde ultimo post
+   - posts
+   - seguidores
+   - seguindo
+   - curtidas
+   - bio vazia
+   - avatar presente
+3. Calcula score de inatividade.
+4. Classifica em:
+   - Ativo
+   - Baixa atividade
+   - Provavelmente inativo
+5. Permite unfollow assistido somente com:
+   - selecao manual
+   - confirmacao digitada (`CONFIRMAR`)
+   - respeito a limite diario
+
+## Heuristica base
+- Sem posts > 180 dias: +50
+- Sem posts > 90 dias: +30
+- Seguidores = 0: +10
+- Curtidas = 0: +10
+- Bio vazia: +5
+- Sem avatar: +10
+
+Regra de classificacao:
+- Score >= 60: Provavelmente inativo
+
+## Arquitetura
+- `manifest.json`: MV3 e permissoes minimas
+- `content.js`: leitura de DOM + score + unfollow assistido
+- `popup.js`: UI, revisao do usuario e confirmacao explicita
+- `background.js`: estado local, limites diarios e aprovacao de acao
+
+## Instalacao
 1. Abra `chrome://extensions`
 2. Ative **Modo do desenvolvedor**
-3. Clique em **Carregar sem compactação**
-4. Selecione a pasta `tiktok-cleaner-extension`
+3. Clique em **Carregar sem compactacao**
+4. Selecione a pasta do projeto
 
-## Uso
-1. Abra o TikTok logado e vá para seu **Perfil**.
-2. Clique na extensão.
-3. Defina:
-   - mínimo de seguidores da conta (ex.: 100)
-   - máximo de contas por execução (0 = todas)
-   - máximo de remoções por rodada (segurança)
-   - limite diário absoluto de remoções (0 = sem limite)
-   - delay por remoção (ms)
-   - lista protegida (@ nunca remover)
-4. Fluxo recomendado:
-   - **1) Só analisar** (obrigatório)
-   - **2) AUTO TOTAL** (remoção)
-5. Opcional: **Exportar relatório CSV**.
-6. Para rotina automática, preencha a seção de agendamento e clique em **Salvar agendamento automático**.
-   - Exemplo: 02:00–06:00, a cada 20 minutos.
-   - Você pode ativar/desativar a rotina pelo checkbox **Ativar rotina automática**.
-   - Se início e fim forem iguais, a janela é tratada como 24h.
-   - Opcional: exigir análise recente antes da remoção automática.
-   - Opcional: definir cooldown automático após bloqueio/captcha.
-   - Opcional: usar **Parada de emergência** para desativar agendamento e solicitar interrupção de execução ativa.
+## Uso rapido
+1. Abra TikTok logado na pagina/lista Seguindo
+2. Abra o popup da extensao
+3. Clique em **Analisar perfis visiveis**
+4. Revise score e criterios por perfil
+5. Se quiser, selecione perfis e confirme `CONFIRMAR`
+6. Clique em **Unfollow assistido (selecionados)**
 
-## Webhook
-- O campo webhook é opcional.
-- URLs remotas devem usar `https://`.
-- `http://` é aceito apenas para ambiente local (`localhost`/`127.0.0.1`).
+## Observacoes
+- A disponibilidade dos sinais depende do que o TikTok mostra no DOM no momento.
+- Mudancas na interface do TikTok podem exigir ajustes de seletor.
 
-## Roadmap
-- Consulte `ROADMAP.md` para backlog técnico e critérios de aceite.
+## Testes de contrato (heuristica)
+- Rodar localmente com Node:
 
-## Publicação e atualização automática
-- Consulte `DEPLOYMENT.md` para os dois fluxos:
-  - Chrome Web Store (recomendado para auto-update geral)
-  - Self-hosted via GitHub (`.crx` + `updates.xml`) para ambiente gerenciado
+```bash
+node --test tests/inactivity-score.contract.test.js
+```
 
-## Como funciona
-- tenta abrir a lista de "Seguindo"
-- varre a lista com rolagem profunda
-- para cada @usuário, consulta `https://www.tiktok.com/@usuario`
-- detecta conta banida/desativada/suspensa (PT/EN)
-- extrai `followerCount`
-- remove automaticamente:
-  - contas banidas/desativadas/suspensas
-  - contas com seguidores abaixo do mínimo
-- inclui backoff adaptativo e interrupção por bloqueio/captcha
-- aplica lock de concorrência no agendamento
+- Os testes validam score, classificacao e regra de nao penalizar sinais ausentes.

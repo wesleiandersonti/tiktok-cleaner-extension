@@ -3,55 +3,55 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>TikTok Cleaner</title>
+  <title>TikTok Following Analyzer</title>
   <style>
     :root{
-      --bg:#0b1020;
-      --card:#121a33;
-      --card-2:#0f1730;
-      --text:#e8ecff;
-      --muted:#a8b3d9;
-      --line:#28345f;
-      --primary:#36d9b6;
-      --primary-2:#1dd3a6;
-      --danger:#ff5c7a;
-      --blue:#4d7cff;
+      --bg:#0f1412;
+      --panel:#17201b;
+      --panel-2:#1f2b24;
+      --line:#314239;
+      --text:#eef7f0;
+      --muted:#a8b8ad;
+      --ok:#67d47f;
+      --warn:#f2b84b;
+      --risk:#ff6b7a;
+      --accent:#56c3ff;
     }
 
     *{box-sizing:border-box}
     body{
       margin:0;
-      width:360px;
-      font-family:Inter,Segoe UI,Arial,sans-serif;
-      background:linear-gradient(180deg,#0a0f1d 0%, #0c1328 100%);
+      width:420px;
+      background:radial-gradient(circle at top left,#202a24 0%,#0d1310 60%);
       color:var(--text);
+      font-family:"IBM Plex Sans", "Segoe UI", sans-serif;
       padding:12px;
     }
 
     .app{
-      background:rgba(18,26,51,.92);
       border:1px solid var(--line);
       border-radius:14px;
+      background:rgba(23,32,27,.95);
       padding:12px;
-      box-shadow:0 12px 30px rgba(0,0,0,.35);
+      box-shadow:0 14px 30px rgba(0,0,0,.35);
     }
 
-    .head{
+    .header{
       display:flex;
       align-items:center;
       gap:10px;
-      padding:6px 4px 12px;
       border-bottom:1px solid var(--line);
+      padding-bottom:10px;
       margin-bottom:10px;
     }
 
-    .head img{width:30px;height:30px;border-radius:8px}
-    .head .title{font-weight:800;font-size:14px;letter-spacing:.2px}
-    .head .sub{font-size:11px;color:var(--muted)}
+    .header img{width:30px;height:30px;border-radius:8px}
+    .title{font-size:14px;font-weight:800;letter-spacing:.2px}
+    .sub{font-size:11px;color:var(--muted)}
 
     .section{
-      background:var(--card-2);
       border:1px solid var(--line);
+      background:var(--panel-2);
       border-radius:10px;
       padding:10px;
       margin-bottom:10px;
@@ -60,196 +60,150 @@
     .section h4{
       margin:0 0 8px;
       font-size:12px;
-      color:#c7d2ff;
       text-transform:uppercase;
-      letter-spacing:.5px;
+      letter-spacing:.55px;
+      color:#d8f5e0;
     }
 
-    label{display:block;font-size:11px;color:var(--muted);margin:0 0 5px}
+    .muted{color:var(--muted);font-size:11px}
+    .tiny{font-size:10px;color:var(--muted)}
 
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+    label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
     input{
       width:100%;
       border:1px solid var(--line);
-      background:#0c1430;
-      color:var(--text);
       border-radius:8px;
-      padding:8px 9px;
+      background:#101814;
+      color:var(--text);
+      padding:8px;
+      font-size:12px;
       margin-bottom:8px;
-      outline:none;
-      transition:.15s border-color;
-      font-size:12px;
     }
-    input:focus{border-color:var(--blue)}
-
-    .checkline{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      margin:0 0 10px;
-      font-size:12px;
-      color:#d8e3ff;
-      user-select:none;
-    }
-
-    .checkline input{
-      width:auto;
-      margin:0;
-      padding:0;
-      border:0;
-      background:transparent;
-      accent-color:var(--primary);
-    }
-
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 
     .btn{
       width:100%;
       border:0;
       border-radius:9px;
       padding:9px 10px;
-      font-weight:700;
       font-size:12px;
+      font-weight:700;
       cursor:pointer;
       margin-bottom:8px;
-      transition:.15s transform,.15s opacity;
+      transition:transform .12s ease,opacity .12s ease;
     }
     .btn:hover{transform:translateY(-1px)}
     .btn:active{transform:translateY(0)}
+    .btn-main{background:linear-gradient(90deg,#6adf8a,#4fc7ff);color:#0b1810}
+    .btn-soft{background:#223329;color:#d8f0de;border:1px solid #3d5948}
+    .btn-risk{background:linear-gradient(90deg,#ff8ea2,#ff6b7a);color:#fff}
 
-    .btn-primary{background:linear-gradient(90deg,var(--primary),var(--primary-2));color:#062018}
-    .btn-blue{background:linear-gradient(90deg,#6288ff,#4d7cff);color:#fff}
-    .btn-dark{background:#1a264a;color:#dce5ff;border:1px solid #314273}
-    .btn-danger{background:linear-gradient(90deg,#ff6f8a,var(--danger));color:#fff}
+    .criteria{margin:0;padding-left:16px}
+    .criteria li{font-size:11px;color:#dce9df;margin-bottom:4px}
 
     .status{
+      border:1px solid var(--line);
+      border-radius:10px;
+      background:#0e1511;
+      min-height:72px;
+      max-height:170px;
+      overflow:auto;
       white-space:pre-wrap;
       font-size:11px;
-      line-height:1.35;
-      background:#0b132b;
-      border:1px solid var(--line);
-      color:#d8e3ff;
-      border-radius:10px;
+      line-height:1.36;
       padding:9px;
-      min-height:80px;
-      max-height:180px;
-      overflow:auto;
     }
 
-    .progress-wrap{margin-top:8px;background:#0b132b;border:1px solid var(--line);border-radius:999px;height:10px;overflow:hidden}
-    .progress-bar{height:100%;width:0%;background:linear-gradient(90deg,#36d9b6,#4d7cff);transition:width .25s ease}
-    .progress-text{font-size:10px;color:var(--muted);margin-top:5px}
+    .results{
+      border:1px solid var(--line);
+      border-radius:10px;
+      background:#0f1713;
+      max-height:230px;
+      overflow:auto;
+      padding:6px;
+    }
 
-    .tiny{font-size:10px;color:var(--muted);margin-top:6px}
-    .pill{display:inline-block;background:#1a2853;border:1px solid #314273;color:#b9c8ff;border-radius:999px;padding:2px 8px;font-size:10px;margin-left:6px}
+    .result-item{
+      border:1px solid #2c3b33;
+      border-radius:8px;
+      background:#162019;
+      padding:8px;
+      margin-bottom:6px;
+    }
+
+    .line{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .name{font-size:12px;font-weight:700}
+    .score{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid transparent}
+    .score-ok{color:#bdeec9;border-color:#3c7b4c;background:#183223}
+    .score-warn{color:#ffe8bd;border-color:#896632;background:#2d2414}
+    .score-risk{color:#ffd2d9;border-color:#a24a57;background:#35161b}
+    .meta{font-size:10px;color:#c6d5ca;margin-top:5px}
+    .reasons{font-size:10px;color:#dce8df;margin-top:5px}
+    .checkline{display:flex;align-items:center;gap:7px}
   </style>
 </head>
 <body>
   <div class="app">
-    <div class="head">
+    <div class="header">
       <img src="assets/tiktok-logo.svg" alt="TikTok"/>
       <div>
-        <div class="title">TikTok Following Cleaner <span class="pill">PRO</span></div>
-        <div class="sub">Limpeza inteligente de seguindo</div>
+        <div class="title">Following Analyzer & Cleaner</div>
+        <div class="sub">Analise transparente + unfollow assistido</div>
       </div>
     </div>
 
     <div class="section">
-      <h4>Critérios</h4>
-      <label>Mínimo de <b>SEGUIDORES</b> da conta</label>
-      <input id="minFollowers" type="number" min="0" value="100"/>
-
-      <label>Máximo de contas (0 = todas)</label>
-      <input id="maxAccounts" type="number" min="0" value="0"/>
-
-      <div class="grid2">
-        <div>
-          <label>Máx. remoções</label>
-          <input id="maxRemovals" type="number" min="1" value="100"/>
-        </div>
-        <div>
-          <label>Delay base (ms)</label>
-          <input id="cooldownMs" type="number" min="300" value="1200"/>
-        </div>
-      </div>
-
-      <div class="grid2">
-        <div>
-          <label>Pausa por lote (ms)</label>
-          <input id="batchPauseMs" type="number" min="1000" value="8000"/>
-        </div>
-        <div>
-          <label>Tamanho do lote</label>
-          <input id="batchSize" type="number" min="1" value="8"/>
-        </div>
-      </div>
-
-      <label>Limite diário absoluto de remoções (0 = sem limite)</label>
-      <input id="dailyRemovalCap" type="number" min="0" value="200"/>
-
-      <label>Protegidas (nunca remover) — @a,@b</label>
-      <input id="protectedUsers" type="text" placeholder="@meuPerfil,@clienteVip"/>
+      <h4>Heuristica de inatividade</h4>
+      <ul class="criteria" id="criteriaList"></ul>
+      <div class="tiny">Classificacao: Ativo / Baixa atividade / Provavelmente inativo</div>
     </div>
 
     <div class="section">
-      <h4>Execução</h4>
-      <button id="dryBtn" class="btn btn-dark">1) Só analisar (obrigatório)</button>
-      <button id="autoBtn" class="btn btn-primary">2) AUTO TOTAL (assumir fluxo)</button>
-      <button id="safeBtn" class="btn btn-dark">ULTRA-SAFE (anti bloqueio)</button>
-      <button id="runBtn" class="btn btn-blue">Varrer e remover (manual)</button>
-      <button id="exportBtn" class="btn btn-dark">Exportar relatório CSV</button>
-      <div class="tiny">Recomendado: analisar primeiro, depois executar remoção.</div>
+      <h4>Config seguranca</h4>
+      <div class="grid2">
+        <div>
+          <label>Limite diario de unfollow</label>
+          <input id="dailyLimit" type="number" min="1" max="300" value="20"/>
+        </div>
+        <div>
+          <label>Delay minimo (ms)</label>
+          <input id="minDelayMs" type="number" min="500" max="15000" value="1200"/>
+        </div>
+      </div>
+      <div class="grid2">
+        <div>
+          <label>Max por acao assistida</label>
+          <input id="maxPerAction" type="number" min="1" max="100" value="15"/>
+        </div>
+        <div>
+          <label>Restante hoje</label>
+          <input id="remainingToday" type="text" value="-" readonly/>
+        </div>
+      </div>
+      <button id="saveSettingsBtn" class="btn btn-soft">Salvar configuracoes</button>
     </div>
 
     <div class="section">
-      <h4>Agendamento automático</h4>
-      <label class="checkline"><input id="scheduleEnabled" type="checkbox" checked/> Ativar rotina automática</label>
-      <label class="checkline"><input id="requireRecentAnalyze" type="checkbox" checked/> Exigir análise recente antes de remover</label>
-
-      <label>URL salva (perfil/página)</label>
-      <input id="profileUrl" type="text" value="https://www.tiktok.com/following"/>
-
-      <div class="grid2">
-        <div>
-          <label>Início (hora)</label>
-          <input id="startHour" type="number" min="0" max="23" value="2"/>
-        </div>
-        <div>
-          <label>Fim (hora)</label>
-          <input id="endHour" type="number" min="0" max="23" value="6"/>
-        </div>
-      </div>
-
-      <label>Intervalo (minutos)</label>
-      <input id="intervalMin" type="number" min="5" value="20"/>
-
-      <div class="grid2">
-        <div>
-          <label>Validade da análise (h)</label>
-          <input id="analysisMaxAgeHours" type="number" min="1" max="168" value="24"/>
-        </div>
-        <div>
-          <label>Cooldown pós-bloqueio (h)</label>
-          <input id="cooldownAfterBlockHours" type="number" min="1" max="72" value="12"/>
-        </div>
-      </div>
-
-      <button id="saveScheduleBtn" class="btn btn-danger">Salvar agendamento automático</button>
-      <button id="emergencyStopBtn" class="btn btn-dark">Parada de emergência</button>
+      <h4>Execucao</h4>
+      <button id="analyzeBtn" class="btn btn-main">Analisar perfis visiveis</button>
+      <button id="selectLikelyBtn" class="btn btn-soft">Selecionar provavelmente inativos</button>
+      <label>Digite <b>CONFIRMAR</b> para liberar unfollow assistido</label>
+      <input id="confirmInput" type="text" placeholder="CONFIRMAR"/>
+      <button id="unfollowBtn" class="btn btn-risk">Unfollow assistido (selecionados)</button>
+      <div class="muted">Nenhuma acao ocorre sem clique e confirmacao explicita.</div>
     </div>
 
     <div class="section">
-      <h4>Envio automático para esta conversa</h4>
-      <label>Webhook local do OpenClaw bridge</label>
-      <input id="webhookUrl" type="text" value="http://127.0.0.1:8788/report"/>
-      <button id="testWebhookBtn" class="btn btn-dark">Testar envio</button>
+      <h4>Resultados</h4>
+      <div id="summary" class="tiny">Ainda sem analise.</div>
+      <div id="results" class="results"></div>
     </div>
 
-    <div id="status" class="status">Abra seu TikTok logado e entre em Perfil antes de rodar.
-Filtro por followers + contas banidas/desativadas.</div>
-    <div class="progress-wrap"><div id="progressBar" class="progress-bar"></div></div>
-    <div id="progressText" class="progress-text">Pronto para executar</div>
+    <div id="status" class="status">Abra a pagina Seguindo no TikTok e clique em analisar.</div>
   </div>
 
+  <script src="inactivity-score.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

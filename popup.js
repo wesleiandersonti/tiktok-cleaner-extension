@@ -80,7 +80,9 @@ function scoreClass(score) {
 }
 
 function getSelectedUsernames() {
-  return Array.from(resultsEl.querySelectorAll('input[data-username]:checked')).map((input) => input.dataset.username);
+  return Array.from(resultsEl.querySelectorAll('input[data-username]:checked')).map(
+    (input) => input.dataset.username
+  );
 }
 
 function renderCriteria() {
@@ -114,7 +116,9 @@ function renderSummary() {
   }
 
   const selected = getSelectedUsernames().length;
-  const likely = analyzedProfiles.filter((p) => p.score >= CLASSIFICATION_THRESHOLDS.likelyInactive).length;
+  const likely = analyzedProfiles.filter(
+    (p) => p.score >= CLASSIFICATION_THRESHOLDS.likelyInactive
+  ).length;
 
   summaryEl.textContent = [
     `Visiveis: ${lastAnalysis.totalVisibleRows}`,
@@ -143,9 +147,13 @@ function renderResults() {
     return;
   }
 
-  const html = analyzedProfiles.map((profile) => {
-    const reasons = profile.reasons?.length ? profile.reasons.join(' | ') : 'Nenhum criterio de risco acionado.';
-    return `
+  const html = analyzedProfiles
+    .map((profile) => {
+      const reasons = profile.reasons?.length
+        ? profile.reasons.join(' | ')
+        : 'Nenhum criterio de risco acionado.';
+
+      return `
       <div class="result-item">
         <div class="line">
           <label class="checkline">
@@ -158,7 +166,8 @@ function renderResults() {
         <div class="reasons">${escapeHtml(reasons)}</div>
       </div>
     `;
-  }).join('');
+    })
+    .join('');
 
   resultsEl.innerHTML = html;
   renderSummary();
@@ -199,7 +208,10 @@ function sendTabMessageRaw(tabId, message) {
 
 function isReceivingEndError(error) {
   const msg = String(error?.message || error || '').toLowerCase();
-  return msg.includes('receiving end does not exist') || msg.includes('message port closed before a response was received');
+  return (
+    msg.includes('receiving end does not exist') ||
+    msg.includes('message port closed before a response was received')
+  );
 }
 
 async function isContentBridgeReady(tabId) {
@@ -236,7 +248,9 @@ async function ensureContentBridge(tabId) {
   try {
     ready = await isContentBridgeReady(tabId);
   } catch {
-    throw new Error('Nao foi possivel acessar a pagina do TikTok. Recarregue a aba e tente novamente.');
+    throw new Error(
+      'Nao foi possivel acessar a pagina do TikTok. Recarregue a aba e tente novamente.'
+    );
   }
 
   if (!ready) {
@@ -246,13 +260,17 @@ async function ensureContentBridge(tabId) {
         files: ['inactivity-score.js', 'content.js']
       });
     } catch {
-      throw new Error('Falha ao preparar a conexao com a pagina. Recarregue o TikTok e tente novamente.');
+      throw new Error(
+        'Falha ao preparar a conexao com a pagina. Recarregue o TikTok e tente novamente.'
+      );
     }
   }
 
   const connected = await waitForBridge(tabId, 2000);
   if (!connected) {
-    throw new Error('Nao foi possivel estabelecer conexao com a pagina. Abra https://www.tiktok.com, recarregue a aba e abra a lista Seguindo antes de tentar novamente.');
+    throw new Error(
+      'Nao foi possivel estabelecer conexao com a pagina. Abra https://www.tiktok.com, recarregue a aba e abra a lista Seguindo antes de tentar novamente.'
+    );
   }
 }
 
@@ -264,7 +282,9 @@ function toFriendlyConnectionError(error) {
   if (msg.includes('cannot access') || msg.includes('not allowed')) {
     return 'A extensao nao conseguiu acessar esta aba. Abra https://www.tiktok.com e tente novamente.';
   }
-  return String(error?.message || error || 'Falha de comunicacao com a pagina do TikTok.');
+  return String(
+    error?.message || error || 'Falha de comunicacao com a pagina do TikTok.'
+  );
 }
 
 async function sendMessageToActiveTikTok(message) {
@@ -315,7 +335,9 @@ async function saveSettings() {
 async function analyzeVisibleProfiles() {
   const precheck = await sendMessageToActiveTikTok({ type: 'PRECHECK' });
   if (!precheck?.ok) {
-    setStatus(precheck?.message || 'Nao foi possivel iniciar a analise neste contexto.');
+    setStatus(
+      precheck?.message || 'Nao foi possivel iniciar a analise neste contexto.'
+    );
     return;
   }
 
@@ -325,7 +347,9 @@ async function analyzeVisibleProfiles() {
   });
 
   if (!response?.ok) {
-    throw new Error(response?.message || response?.error || 'Falha na analise.');
+    throw new Error(
+      response?.message || response?.error || 'Falha na analise.'
+    );
   }
 
   analyzedProfiles = Array.isArray(response.profiles) ? response.profiles : [];
@@ -336,7 +360,9 @@ async function analyzeVisibleProfiles() {
   };
 
   renderResults();
-  setStatus(`Analise concluida em ${lastAnalysis.scannedAt}. Revise os criterios antes de confirmar unfollow.`);
+  setStatus(
+    `Analise concluida em ${lastAnalysis.scannedAt}. Revise os criterios antes de confirmar unfollow.`
+  );
 }
 
 function selectLikelyInactive() {
@@ -355,7 +381,9 @@ function selectLikelyInactive() {
   }
 
   renderSummary();
-  setStatus(`Selecionados automaticamente ${selected} perfis com score >= ${CLASSIFICATION_THRESHOLDS.likelyInactive}.`);
+  setStatus(
+    `Selecionados automaticamente ${selected} perfis com score >= ${CLASSIFICATION_THRESHOLDS.likelyInactive}.`
+  );
 }
 
 async function runAssistedUnfollow() {
@@ -396,7 +424,9 @@ async function runAssistedUnfollow() {
   });
 
   if (!response?.ok) {
-    throw new Error(response?.message || response?.error || 'Falha ao executar unfollow assistido.');
+    throw new Error(
+      response?.message || response?.error || 'Falha ao executar unfollow assistido.'
+    );
   }
 
   const commit = await runtimeMessage({
@@ -408,7 +438,9 @@ async function runAssistedUnfollow() {
   });
 
   if (!commit?.ok) {
-    appendStatus(`Aviso: nao foi possivel registrar consumo diario (${commit?.error || 'erro desconhecido'}).`);
+    appendStatus(
+      `Aviso: nao foi possivel registrar consumo diario (${commit?.error || 'erro desconhecido'}).`
+    );
   } else {
     appState = { ...appState, daily: commit.daily };
     renderDailyState();
@@ -443,13 +475,25 @@ function setBusy(button, busyText, fn) {
   };
 }
 
-analyzeBtn.addEventListener('click', setBusy(analyzeBtn, 'Analisando...', analyzeVisibleProfiles));
-saveSettingsBtn.addEventListener('click', setBusy(saveSettingsBtn, 'Salvando...', saveSettings));
-unfollowBtn.addEventListener('click', setBusy(unfollowBtn, 'Executando...', runAssistedUnfollow));
+analyzeBtn.addEventListener(
+  'click',
+  setBusy(analyzeBtn, 'Analisando...', analyzeVisibleProfiles)
+);
+saveSettingsBtn.addEventListener(
+  'click',
+  setBusy(saveSettingsBtn, 'Salvando...', saveSettings)
+);
+unfollowBtn.addEventListener(
+  'click',
+  setBusy(unfollowBtn, 'Executando...', runAssistedUnfollow)
+);
 selectLikelyBtn.addEventListener('click', selectLikelyInactive);
 
 resultsEl.addEventListener('change', (event) => {
-  if (event.target instanceof HTMLInputElement && event.target.matches('input[data-username]')) {
+  if (
+    event.target instanceof HTMLInputElement &&
+    event.target.matches('input[data-username]')
+  ) {
     renderSummary();
   }
 });
