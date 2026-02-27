@@ -1,5 +1,49 @@
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+const HEURISTICS_VERSION = '2026-02-26-a';
+const ACCESS_DENIED_TERMS = ['access denied', 'acesso negado', 'captcha', 'verify to continue', 'too many attempts'];
+const HARD_BANNED_TERMS = [
+  "couldn't find this account",
+  'não foi possível encontrar esta conta',
+  'account is unavailable',
+  'conta indisponível',
+  'user not found',
+  'usuário não encontrado'
+];
+const DEFAULT_STOP_KEY = 'tiktokCleanerStopRequested';
+
+function taggedError(message, code) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
+
+function createAdaptiveBackoff(baseDelayMs, ultraSafe) {
+  let penaltyMs = 0;
+  const minimumGapMs = ultraSafe
+    ? Math.max(650, Math.floor(baseDelayMs * 0.6))
+    : Math.max(280, Math.floor(baseDelayMs * 0.35));
+  const jitterMs = ultraSafe ? 700 : 320;
+
+  return {
+    async waitBeforeRequest() {
+      await sleep(minimumGapMs + penaltyMs + Math.floor(Math.random() * jitterMs));
+    },
+    onSuccess() {
+      penaltyMs = Math.max(0, Math.floor(penaltyMs * 0.5) - 120);
+    },
+    onThrottle() {
+      penaltyMs = Math.min(15000, Math.max(1800, penaltyMs > 0 ? penaltyMs * 2 : 2200));
+    },
+    onError() {
+      penaltyMs = Math.min(12000, penaltyMs + 600);
+    },
+    currentPenalty() {
+      return penaltyMs;
+    }
+  };
+}
+
 function isScrollable(el) {
   if (!el || el === document.body || el === document.documentElement) return false;
   const s = getComputedStyle(el);
@@ -89,26 +133,21 @@ async function ensureFollowingListOpen() {
 async function fetchProfileSignals(username) {
   const url = `https://www.tiktok.com/@${username}`;
   const resp = await fetch(url, { credentials: 'include' });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} @${username}`);
+  if (resp.status === 429) throw taggedError(`HTTP 429 @${username}`, 'RATE_LIMIT');
+  if (resp.status === 403) throw taggedError(`HTTP 403 @${username}`, 'ACCESS_DENIED');
+  if (!resp.ok) throw taggedError(`HTTP ${resp.status} @${username}`, 'HTTP_ERROR');
   const html = await resp.text();
 
   const normalized = html.toLowerCase();
 
+  if (ACCESS_DENIED_TERMS.some(t => normalized.includes(t))) {
+    throw taggedError(`Acesso negado/captcha ao consultar @${username}`, 'ACCESS_DENIED');
+  }
+
   const m = html.match(/"followerCount"\s*:\s*(\d+)/);
   const followers = m ? Number(m[1]) : null;
 
-  // Detecção estrita para evitar falso positivo
-  const hardBannedTerms = [
-    "couldn't find this account",
-    "não foi possível encontrar esta conta",
-    "account is unavailable",
-    "conta indisponível",
-    "user not found",
-    "usuário não encontrado"
-  ];
-
-  // Só considera banida/desativada quando NÃO existe followerCount e há termo forte
-  const hasHardTerm = hardBannedTerms.some(t => normalized.includes(t));
+  const hasHardTerm = HARD_BANNED_TERMS.some(t => normalized.includes(t));
   const isBanned = followers === null && hasHardTerm;
 
   return { followers, isBanned };
@@ -126,7 +165,7 @@ async function deepScroll(container, rounds = 25) {
   }
 }
 
-async function runCleanup({ minFollowers, maxAccounts, dryRun, maxRemovals, cooldownMs, batchPauseMs, batchSize, ultraSafe, protectedUsers }) {
+async function runCleanup({ minFollowers, maxAccounts, dryRun, maxRemovals, cooldownMs, batchPauseMs, batchSize, ultraSafe, protectedUsers, stopKey = DEFAULT_STOP_KEY }) {
   const analyzeAll = !maxAccounts || Number(maxAccounts) === 0;
   const maxRemoveLimit = Math.max(1, Number(maxRemovals || 100));
   const delayBaseMs = Math.max(300, Number(cooldownMs || 1200));
@@ -135,6 +174,22 @@ async function runCleanup({ minFollowers, maxAccounts, dryRun, maxRemovals, cool
   const isUltraSafe = !!ultraSafe;
   const protectedSet = new Set((protectedUsers || []).map(x => String(x).toLowerCase()));
   const errors = [];
+  const backoff = createAdaptiveBackoff(delayBaseMs, isUltraSafe);
+  const stopState = { ts: 0, value: false };
+
+  async function isStopRequested() {
+    const now = Date.now();
+    if (now - stopState.ts < 450) return stopState.value;
+    try {
+      const data = await chrome.storage.local.get(stopKey);
+      stopState.value = !!data?.[stopKey];
+      stopState.ts = now;
+      return stopState.value;
+    } catch {
+      stopState.ts = now;
+      return false;
+    }
+  }
 
   const denyText = (document.body?.innerText || '').toLowerCase();
   if (denyText.includes('acesso negado') || denyText.includes('access denied')) {
@@ -171,14 +226,29 @@ async function runCleanup({ minFollowers, maxAccounts, dryRun, maxRemovals, cool
   let skippedProtected = 0;
   const audit = [];
   let noNewRounds = 0;
+  let consecutiveFailures = 0;
+  let stoppedReason = null;
 
+  outerLoop:
   for (let round = 0; round < 400; round++) {
+    if (await isStopRequested()) {
+      stoppedReason = 'emergency_stop';
+      errors.push('Execução interrompida por solicitação de parada de emergência.');
+      break;
+    }
+
     let currentRows = findFollowingEntryRows(dialog);
     if (currentRows.length === 0) currentRows = findFollowingEntryRows(document);
 
     let addedThisRound = 0;
 
     for (const row of currentRows) {
+      if (await isStopRequested()) {
+        stoppedReason = 'emergency_stop';
+        errors.push('Execução interrompida por solicitação de parada de emergência.');
+        break outerLoop;
+      }
+
       if (!analyzeAll && checked >= maxAccounts) break;
 
       const username = parseUsernameFromRow(row);
@@ -193,7 +263,10 @@ async function runCleanup({ minFollowers, maxAccounts, dryRun, maxRemovals, cool
       }
 
       try {
+        await backoff.waitBeforeRequest();
         const signal = await fetchProfileSignals(username);
+        backoff.onSuccess();
+        consecutiveFailures = 0;
         checked++;
 
         const shouldRemoveByBan = signal.isBanned;
@@ -241,7 +314,34 @@ async function runCleanup({ minFollowers, maxAccounts, dryRun, maxRemovals, cool
           reason
         });
       } catch (e) {
-        errors.push(String(e.message || e));
+        const code = e?.code || '';
+        const message = String(e.message || e);
+        if (code === 'RATE_LIMIT' || code === 'ACCESS_DENIED') {
+          backoff.onThrottle();
+        } else {
+          backoff.onError();
+        }
+
+        consecutiveFailures++;
+        errors.push(`${message} (backoff ${backoff.currentPenalty()}ms)`);
+
+        if (code === 'ACCESS_DENIED') {
+          stoppedReason = 'access_denied';
+          errors.push('Execução interrompida imediatamente por acesso negado/captcha.');
+          break outerLoop;
+        }
+
+        if (consecutiveFailures >= 4 && code === 'RATE_LIMIT') {
+          stoppedReason = 'throttled';
+          errors.push('Execução interrompida por bloqueio/rate limit consecutivo.');
+          break outerLoop;
+        }
+
+        if (consecutiveFailures >= 8) {
+          stoppedReason = 'too_many_errors';
+          errors.push('Execução interrompida por excesso de falhas consecutivas.');
+          break outerLoop;
+        }
       }
     }
 
@@ -256,7 +356,18 @@ async function runCleanup({ minFollowers, maxAccounts, dryRun, maxRemovals, cool
     await sleep(320);
   }
 
-  return { checked, below, banned, removed, skippedProtected, errors, foundTotal: checkedUsers.size, audit };
+  return {
+    checked,
+    below,
+    banned,
+    removed,
+    skippedProtected,
+    errors,
+    foundTotal: checkedUsers.size,
+    audit,
+    heuristicsVersion: HEURISTICS_VERSION,
+    stoppedReason
+  };
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

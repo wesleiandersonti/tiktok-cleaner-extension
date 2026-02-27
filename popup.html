@@ -81,6 +81,25 @@
     }
     input:focus{border-color:var(--blue)}
 
+    .checkline{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      margin:0 0 10px;
+      font-size:12px;
+      color:#d8e3ff;
+      user-select:none;
+    }
+
+    .checkline input{
+      width:auto;
+      margin:0;
+      padding:0;
+      border:0;
+      background:transparent;
+      accent-color:var(--primary);
+    }
+
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 
     .btn{
@@ -164,6 +183,9 @@
         </div>
       </div>
 
+      <label>Limite diário absoluto de remoções (0 = sem limite)</label>
+      <input id="dailyRemovalCap" type="number" min="0" value="200"/>
+
       <label>Protegidas (nunca remover) — @a,@b</label>
       <input id="protectedUsers" type="text" placeholder="@meuPerfil,@clienteVip"/>
     </div>
@@ -180,6 +202,9 @@
 
     <div class="section">
       <h4>Agendamento automático</h4>
+      <label class="checkline"><input id="scheduleEnabled" type="checkbox" checked/> Ativar rotina automática</label>
+      <label class="checkline"><input id="requireRecentAnalyze" type="checkbox" checked/> Exigir análise recente antes de remover</label>
+
       <label>URL salva (perfil/página)</label>
       <input id="profileUrl" type="text" value="https://www.tiktok.com/following"/>
 
@@ -197,7 +222,19 @@
       <label>Intervalo (minutos)</label>
       <input id="intervalMin" type="number" min="5" value="20"/>
 
+      <div class="grid2">
+        <div>
+          <label>Validade da análise (h)</label>
+          <input id="analysisMaxAgeHours" type="number" min="1" max="168" value="24"/>
+        </div>
+        <div>
+          <label>Cooldown pós-bloqueio (h)</label>
+          <input id="cooldownAfterBlockHours" type="number" min="1" max="72" value="12"/>
+        </div>
+      </div>
+
       <button id="saveScheduleBtn" class="btn btn-danger">Salvar agendamento automático</button>
+      <button id="emergencyStopBtn" class="btn btn-dark">Parada de emergência</button>
     </div>
 
     <div class="section">
