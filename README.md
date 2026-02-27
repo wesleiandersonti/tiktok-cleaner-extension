@@ -43,6 +43,11 @@ Extensão privada para varrer sua lista de **Seguindo** e remover contas abaixo 
 ## Roadmap
 - Consulte `ROADMAP.md` para backlog técnico e critérios de aceite.
 
+## Publicação e atualização automática
+- Consulte `DEPLOYMENT.md` para os dois fluxos:
+  - Chrome Web Store (recomendado para auto-update geral)
+  - Self-hosted via GitHub (`.crx` + `updates.xml`) para ambiente gerenciado
+
 ## Como funciona
 - tenta abrir a lista de "Seguindo"
 - varre a lista com rolagem profunda

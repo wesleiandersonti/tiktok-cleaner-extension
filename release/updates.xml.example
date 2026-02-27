@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>
+  <app appid='YOUR_EXTENSION_ID'>
+    <updatecheck
+      codebase='https://github.com/YOUR_USER/tiktok-cleaner-extension/releases/download/v0.1.1/tiktok-cleaner-extension.crx'
+      version='0.1.1' />
+  </app>
+</gupdate>
